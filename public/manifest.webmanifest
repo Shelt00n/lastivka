@@ -1,0 +1,11 @@
+{
+  "name": "Ластівка",
+  "short_name": "Ластівка",
+  "description": "Мобільний месенджер у стилі Telegram з функцією «Тихі години»",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#3390ec",
+  "lang": "uk",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

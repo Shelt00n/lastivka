@@ -1,0 +1,34 @@
+# Render Blueprint: Dashboard → New → Blueprint → this repository.
+# Creates a PostgreSQL database and the web service; DATABASE_URL is wired automatically,
+# so the password never appears in the repo or in anyone's clipboard.
+databases:
+  - name: lastivka-db
+    plan: free
+    region: frankfurt
+    databaseName: lastivka
+    user: lastivka
+    # No public access: only services inside the Render private network can connect.
+    ipAllowList: []
+
+services:
+  - type: web
+    name: lastivka
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY
+        value: "true"
+      - key: DEMO_PASSWORD
+        value: lastivka-demo
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lastivka-db
+          property: connectionString

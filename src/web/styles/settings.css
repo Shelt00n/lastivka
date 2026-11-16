@@ -1,0 +1,356 @@
+/* ---------- Grouped cards (Settings, Info) ---------- */
+.card {
+  margin: 0 16px 8px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.card--padded {
+  padding: 8px;
+}
+
+.card--chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 12px;
+}
+
+.cell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 10px 16px;
+  border: 0;
+  border-top: 0.5px solid var(--sep);
+  background: transparent;
+  color: var(--text);
+  font-size: 16px;
+  text-align: left;
+}
+
+.cell:first-child {
+  border-top: 0;
+}
+
+.cell__label {
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.cell__label--icon {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cell--quiet .cell__label {
+  color: var(--quiet-text);
+}
+
+.cell__value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.cell__value--accent {
+  color: var(--accent);
+}
+
+.cell--quiet .cell__value {
+  color: var(--quiet-text);
+}
+
+.cell--row {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  min-height: 46px;
+  padding: 6px 16px;
+}
+
+.cell__grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.cell__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  color: #fff;
+}
+
+.cell__icon--quiet {
+  background: var(--quiet);
+}
+
+.cell__icon--blue {
+  background: #3390ec;
+}
+
+.cell__icon--green {
+  background: #34c759;
+}
+
+.cell__icon--gray {
+  background: #8e8e93;
+}
+
+.cell--button {
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  color: var(--accent);
+  font-size: 17px;
+}
+
+.cell--button:active {
+  background: var(--row-active);
+}
+
+.cell--danger {
+  color: var(--danger);
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 18px 32px 6px;
+  color: var(--text-2);
+  font-size: 13px;
+  letter-spacing: 0.2px;
+  text-transform: uppercase;
+}
+
+.section-title--feature {
+  color: var(--quiet-text);
+}
+
+.new-badge {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--quiet);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+}
+
+.section-footer {
+  padding: 2px 32px 10px;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.section-footer--quiet {
+  color: var(--quiet-text);
+}
+
+.time-input,
+.select-input {
+  max-width: 52%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  outline: none;
+  background: var(--search-bg);
+  font-size: 16px;
+}
+
+.select-input {
+  text-overflow: ellipsis;
+}
+
+.profile-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+  padding: 14px 8px 14px 16px;
+}
+
+.profile-card__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.profile-card__body b {
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.profile-card__body span {
+  color: var(--text-2);
+  font-size: 15px;
+}
+
+.profile-card__body .profile-card__bio {
+  margin-top: 2px;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.edit-card {
+  margin-top: 12px;
+}
+
+.edit-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 46px;
+  padding: 0 16px;
+  border-top: 0.5px solid var(--sep);
+}
+
+.edit-field:first-child {
+  border-top: 0;
+}
+
+.edit-field span {
+  flex-shrink: 0;
+  width: 92px;
+  color: var(--text-2);
+  font-size: 15px;
+}
+
+.edit-field input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-size: 16px;
+}
+
+.edit-card__actions {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 8px;
+  border-top: 0.5px solid var(--sep);
+}
+
+.segmented--inline {
+  margin: 0;
+}
+
+.session__body {
+  display: flex;
+  flex-direction: column;
+}
+
+.session__body b {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.session__body span {
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.app-footer {
+  padding: 16px 0 28px;
+  color: var(--text-2);
+  font-size: 13px;
+  text-align: center;
+}
+
+/* ---------- Profile / chat info ---------- */
+.profile-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 16px 18px;
+  text-align: center;
+}
+
+.profile-hero h1 {
+  margin: 12px 0 2px;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.profile-hero p {
+  color: var(--text-2);
+  font-size: 15px;
+}
+
+.profile-hero p.is-online {
+  color: var(--accent);
+}
+
+.action-tiles {
+  display: flex;
+  gap: 8px;
+  padding: 0 16px 16px;
+}
+
+.action-tile {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 4px 8px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.action-tile:active {
+  opacity: 0.7;
+}
+
+/* ---------- Delete account ---------- */
+.delete-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  text-align: center;
+}
+
+.delete-sheet b {
+  font-size: 17px;
+}
+
+.delete-sheet span {
+  color: var(--text-2);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.btn-danger {
+  height: 46px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.btn-danger:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
