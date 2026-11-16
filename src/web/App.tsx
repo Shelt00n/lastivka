@@ -1,8 +1,9 @@
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router";
 import { Logo } from "./components/Glyphs";
 import { ToastHost } from "./components/Toast";
 import { useChats, useMe } from "./lib/queries";
+import { ApiError } from "./lib/api";
 import { useRealtime } from "./lib/realtime";
 import type { Me } from "../shared/types";
 import { LoginPage } from "./pages/LoginPage";
@@ -46,11 +47,33 @@ function Authed({ me }: { me: Me }) {
   );
 }
 
+/** Server unreachable (redeploy, cold start, offline): keep the session, retry quietly. */
+function Offline({ retry }: { retry: () => void }) {
+  useEffect(() => {
+    const t = setInterval(retry, 4000);
+    return () => clearInterval(t);
+  }, [retry]);
+  return (
+    <div className="splash splash--offline">
+      <Logo size={72} />
+      <p>Немає з'єднання з сервером. Пробуємо ще раз…</p>
+      <button type="button" className="link-btn link-btn--bold" onClick={retry}>
+        Спробувати зараз
+      </button>
+    </div>
+  );
+}
+
 function RequireAuth() {
   const me = useMe();
+  const { refetch } = me;
+  const retry = useCallback(() => void refetch(), [refetch]);
+  if (me.data) return <Authed me={me.data} />;
   if (me.isPending) return <Splash />;
-  if (!me.data) return <Navigate to="/login" replace />;
-  return <Authed me={me.data} />;
+  // Only a real "not logged in" sends you to the login screen — a temporary server error does not.
+  const loggedOut = me.data === null || (me.error instanceof ApiError && me.error.status === 401);
+  if (loggedOut) return <Navigate to="/login" replace />;
+  return <Offline retry={retry} />;
 }
 
 export function App() {

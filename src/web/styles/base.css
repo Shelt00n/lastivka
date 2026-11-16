@@ -1006,3 +1006,13 @@ p {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px;
 }
+
+.splash--offline {
+  flex-direction: column;
+  gap: 12px;
+  padding: 24px;
+  animation: none;
+  color: var(--text-2);
+  font-size: 15px;
+  text-align: center;
+}
