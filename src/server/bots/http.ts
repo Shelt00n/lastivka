@@ -16,6 +16,7 @@ interface Options {
   timeoutMs?: number;
   now?: () => number;
   maxEntries?: number;
+  retryDelayMs?: number;
 }
 
 /**
@@ -25,13 +26,10 @@ interface Options {
  *  - zod validation (external data is untrusted input).
  */
 export function createJsonClient(fetchImpl: FetchLike, opts: Options = {}) {
-  const { timeoutMs = 6000, now = Date.now, maxEntries = 500 } = opts;
+  const { timeoutMs = 5000, now = Date.now, maxEntries = 500, retryDelayMs = 400 } = opts;
   const cache = new Map<string, { expires: number; value: unknown }>();
 
-  return async function getJson<T>(service: string, url: string, schema: z.ZodType<T>, ttlMs: number): Promise<T> {
-    const hit = cache.get(url);
-    if (hit && hit.expires > now()) return hit.value as T;
-
+  async function fetchOnce<T>(service: string, url: string, schema: z.ZodType<T>): Promise<T> {
     let res: Response;
     try {
       res = await fetchImpl(url, {
@@ -52,10 +50,30 @@ export function createJsonClient(fetchImpl: FetchLike, opts: Options = {}) {
     }
     const parsed = schema.safeParse(body);
     if (!parsed.success) throw new ExternalApiError(service, "invalid", parsed.error.issues[0]?.message);
+    return parsed.data;
+  }
+
+  /** Worth one more try: network hiccup, timeout, rate limit or a server error. */
+  const transient = (e: ExternalApiError) =>
+    e.reason === "timeout" || e.reason === "network" || (e.reason === "http" && /^(429|5\d\d)/.test(e.message.split("(")[1] ?? ""));
+
+  return async function getJson<T>(service: string, url: string, schema: z.ZodType<T>, ttlMs: number): Promise<T> {
+    const hit = cache.get(url);
+    if (hit && hit.expires > now()) return hit.value as T;
+
+    let value: T;
+    try {
+      value = await fetchOnce(service, url, schema);
+    } catch (err) {
+      if (!(err instanceof ExternalApiError) || !transient(err)) throw err;
+      console.warn(`[external] ${err.message} — retrying once`);
+      await new Promise((r) => setTimeout(r, retryDelayMs));
+      value = await fetchOnce(service, url, schema);
+    }
 
     if (cache.size >= maxEntries) cache.delete(cache.keys().next().value!);
-    cache.set(url, { expires: now() + ttlMs, value: parsed.data });
-    return parsed.data;
+    cache.set(url, { expires: now() + ttlMs, value });
+    return value;
   };
 }
 

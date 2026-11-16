@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { answerRates, parseRatesQuery, type NbuRates } from "../../src/server/bots/rates";
-import { describeWeatherCode, formatForecast, parseCityQuery, weatherBot } from "../../src/server/bots/weather";
+import { answerRates, kyivDateParam, parseRatesQuery, ratesBot, type NbuRates } from "../../src/server/bots/rates";
+import { cityCandidates, describeWeatherCode, formatForecast, parseCityQuery, weatherBot } from "../../src/server/bots/weather";
 import { trimExtract, wikiBot } from "../../src/server/bots/wiki";
 import { createJsonClient, ExternalApiError, type FetchLike } from "../../src/server/bots/http";
 import { createBots } from "../../src/server/bots";
@@ -163,5 +163,98 @@ describe("external API client", () => {
     });
     const reply = await bots.reply("weather", "Київ");
     expect(reply.text).toContain("Не вдалося зв'язатися із сервісом");
+  });
+});
+
+describe("bot reliability and fresh data", () => {
+  const forecast = {
+    current: { time: "2026-11-16T19:15", temperature_2m: 5.3, apparent_temperature: 1.2, relative_humidity_2m: 72, weather_code: 3, wind_speed_10m: 3.8 },
+    daily: { time: ["2026-11-16", "2026-11-17", "2026-11-18"], weather_code: [3, 80, 61], temperature_2m_max: [5.7, 4.9, 7.8], temperature_2m_min: [-0.5, 2.8, 4.7] },
+  };
+  const geo = { results: [{ name: "Київ", latitude: 50.4547, longitude: 30.5238, country: "Україна", timezone: "Europe/Kyiv" }] };
+  // 18:00Z on Nov 16 = 20:00 in Kyiv
+  const NOW = Date.UTC(2026, 10, 16, 18, 0);
+  const metno = {
+    properties: {
+      meta: { updated_at: "2026-11-16T17:19:41Z" },
+      timeseries: [
+        { time: "2026-11-16T18:00:00Z", data: { instant: { details: { air_temperature: 5.7, relative_humidity: 73.8, wind_speed: 6.1 } }, next_1_hours: { summary: { symbol_code: "cloudy" } }, next_6_hours: { summary: { symbol_code: "cloudy" } } } },
+        { time: "2026-11-17T09:00:00Z", data: { instant: { details: { air_temperature: 3.1 } }, next_6_hours: { summary: { symbol_code: "lightrain" } } } },
+        { time: "2026-11-17T12:00:00Z", data: { instant: { details: { air_temperature: 6.4 } } } },
+        { time: "2026-11-18T10:00:00Z", data: { instant: { details: { air_temperature: 8.0 } }, next_6_hours: { summary: { symbol_code: "clearsky_day" } } } },
+      ],
+    },
+  };
+
+  it("shows when the weather data is for", async () => {
+    const fetchMock: FetchLike = async (url) => (url.includes("geocoding") ? json(geo) : json(forecast));
+    const reply = await weatherBot(createJsonClient(fetchMock, { retryDelayMs: 0 }), "Київ", NOW);
+    expect(reply.text).toContain("Дані Open-Meteo на 19:15 за місцевим часом");
+  });
+
+  it("falls back to MET Norway when Open-Meteo refuses (e.g. per-IP limit on shared hosting)", async () => {
+    const calls: string[] = [];
+    const fetchMock: FetchLike = async (url) => {
+      calls.push(url);
+      if (url.includes("geocoding")) return json(geo);
+      if (url.includes("//api.open-meteo.com")) return json({ reason: "limit" }, 429);
+      return json(metno);
+    };
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const reply = await weatherBot(createJsonClient(fetchMock, { retryDelayMs: 0 }), "Київ", NOW);
+    expect(calls.filter((u) => u.includes("//api.open-meteo.com"))).toHaveLength(2); // one retry
+    expect(calls.some((u) => u.includes("api.met.no"))).toBe(true);
+    expect(reply.text).toContain("☁️ Київ, Україна: +6°, хмарно");
+    expect(reply.text).toContain("Завтра: 🌧 +3°…+6°");
+    expect(reply.text).toContain("Дані MET Norway на 19:19 за місцевим часом");
+  });
+
+  it("understands cities in the locative case", async () => {
+    expect(cityCandidates("Харкові")).toContain("Харків");
+    expect(cityCandidates("Львові")).toContain("Львів");
+    expect(cityCandidates("Києві")).toContain("Київ");
+    expect(cityCandidates("Одесі")).toContain("Одеса");
+    const asked: string[] = [];
+    const fetchMock: FetchLike = async (url) => {
+      if (url.includes("geocoding")) {
+        const name = decodeURIComponent(new URL(url).searchParams.get("name")!);
+        asked.push(name);
+        return json(name === "Харків" ? { results: [{ name: "Харків", latitude: 49.99, longitude: 36.23, country: "Україна" }] } : {});
+      }
+      return json(forecast);
+    };
+    const reply = await weatherBot(createJsonClient(fetchMock, { retryDelayMs: 0 }), "погода у Харкові", NOW);
+    expect(asked.slice(0, 2)).toEqual(["Харкові", "Харків"]);
+    expect(reply.text).toContain("Харків, Україна");
+  });
+
+  it("retries a transient failure once, but not a client error", async () => {
+    let n = 0;
+    const flaky = createJsonClient(async () => (++n === 1 ? json({}, 503) : json({ ok: true })), { retryDelayMs: 0 });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await expect(flaky("svc", "https://x/flaky", z.object({ ok: z.boolean() }), 0)).resolves.toEqual({ ok: true });
+    expect(n).toBe(2);
+
+    let m = 0;
+    const notFound = createJsonClient(async () => (++m, json({}, 404)), { retryDelayMs: 0 });
+    await expect(notFound("svc", "https://x/404", z.object({ ok: z.boolean() }), 0)).rejects.toMatchObject({ reason: "http" });
+    expect(m).toBe(1);
+  });
+
+  it("asks NBU for today's rate (Kyiv date) and mentions tomorrow's when already set", async () => {
+    expect(kyivDateParam(Date.UTC(2026, 10, 16, 22, 30))).toBe("20261117"); // 00:30 in Kyiv
+    const urls: string[] = [];
+    const fetchMock: FetchLike = async (url) => {
+      urls.push(url);
+      return url.includes("date=")
+        ? json([{ cc: "USD", txt: "Долар США", rate: 45.4274, exchangedate: "16.11.2026" }])
+        : json([{ cc: "USD", txt: "Долар США", rate: 45.3918, exchangedate: "17.11.2026" }]);
+    };
+    const reply = await ratesBot(createJsonClient(fetchMock, { retryDelayMs: 0 }), "USD", NOW);
+    expect(urls[0]).toContain("date=20261116");
+    const text = norm(reply.text);
+    expect(text).toContain("1 USD = 45,4274 ₴");
+    expect(text).toContain("офіційний курс НБУ на 16.11.2026");
+    expect(text).toContain("З 17.11.2026: 45,3918 ₴ (−0,0356)");
   });
 });

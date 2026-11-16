@@ -1,6 +1,7 @@
 import { z } from "zod";
-import type { JsonClient } from "./http";
+import { ExternalApiError, type JsonClient } from "./http";
 import type { BotReply } from "./index";
+import { zonedParts } from "../../shared/quietHours";
 
 /** National Bank of Ukraine official rates: public, no key. */
 const NBU_URL = "https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?json";
@@ -68,8 +69,14 @@ export function parseRatesQuery(input: string): RatesQuery {
 const fmt = (n: number, digits = 2) =>
   new Intl.NumberFormat("uk-UA", { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(n);
 
-/** Pure formatter/converter — covered by unit tests. */
-export function answerRates(q: RatesQuery, rates: NbuRates): string {
+/** "20261116" — today's date in Kyiv, the date NBU rates are set for. */
+export function kyivDateParam(now: number): string {
+  const p = zonedParts(now, "Europe/Kyiv");
+  return `${p.year}${String(p.month).padStart(2, "0")}${String(p.day).padStart(2, "0")}`;
+}
+
+/** Pure formatter/converter — covered by unit tests. `next` = the rate NBU already set for tomorrow, if any. */
+export function answerRates(q: RatesQuery, rates: NbuRates, next?: NbuRates): string {
   const byCode = new Map(rates.map((r) => [r.cc, r]));
   const date = rates[0]?.exchangedate ?? "";
   const rateOf = (code: string) => (code === "UAH" ? 1 : byCode.get(code)?.rate);
@@ -87,7 +94,13 @@ export function answerRates(q: RatesQuery, rates: NbuRates): string {
     case "rate": {
       const r = byCode.get(q.code);
       if (!r) return `Не знаю валюту ${q.code} 🤔`;
-      return `1 ${r.cc} = ${fmt(r.rate, 4)} ₴\n${r.txt} · курс НБУ на ${date}`;
+      const lines = [`1 ${r.cc} = ${fmt(r.rate, 4)} ₴`, `${r.txt} · офіційний курс НБУ на ${date}`];
+      const n = next?.find((x) => x.cc === q.code);
+      if (n && n.exchangedate !== r.exchangedate) {
+        const diff = n.rate - r.rate;
+        lines.push(`З ${n.exchangedate}: ${fmt(n.rate, 4)} ₴ (${diff >= 0 ? "+" : "−"}${fmt(Math.abs(diff), 4)})`);
+      }
+      return lines.join("\n");
     }
     case "convert": {
       const from = rateOf(q.from);
@@ -111,9 +124,13 @@ export const ratesWelcome: BotReply = {
   buttons: BUTTONS,
 };
 
-export async function ratesBot(getJson: JsonClient, text: string): Promise<BotReply> {
+export async function ratesBot(getJson: JsonClient, text: string, now = Date.now()): Promise<BotReply> {
   const q = parseRatesQuery(text);
   if (q.kind === "help") return ratesWelcome;
-  const rates = await getJson("nbu", NBU_URL, nbuSchema, 30 * 60_000);
-  return { text: answerRates(q, rates), buttons: BUTTONS };
+  // Without a date NBU returns the latest SET rate, which after ~15:30 is tomorrow's — ask for today explicitly.
+  const rates = await getJson("nbu", `${NBU_URL}&date=${kyivDateParam(now)}`, nbuSchema, 15 * 60_000);
+  if (rates.length === 0) throw new ExternalApiError("nbu", "invalid", "empty list");
+  let next: NbuRates | undefined;
+  if (q.kind === "rate") next = await getJson("nbu", NBU_URL, nbuSchema, 15 * 60_000).catch(() => undefined);
+  return { text: answerRates(q, rates, next), buttons: BUTTONS };
 }
