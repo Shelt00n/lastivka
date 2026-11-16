@@ -84,7 +84,7 @@ describe("weather bot", () => {
     const text = formatForecast("Київ, Україна", forecast);
     expect(text).toContain("☁️ Київ, Україна: +3°, хмарно");
     expect(text).toContain("Відчувається як -1°");
-    expect(text).toContain("Завтра: 🌧 -1°…+4°");
+    expect(text).toContain("Завтра: 🌧️ -1°…+4°");
     expect(text).toContain("Ср: ☀️ -3°…+2°");
   });
 
@@ -205,7 +205,7 @@ describe("bot reliability and fresh data", () => {
     expect(calls.filter((u) => u.includes("//api.open-meteo.com"))).toHaveLength(2); // one retry
     expect(calls.some((u) => u.includes("api.met.no"))).toBe(true);
     expect(reply.text).toContain("☁️ Київ, Україна: +6°, хмарно");
-    expect(reply.text).toContain("Завтра: 🌧 +3°…+6°");
+    expect(reply.text).toContain("Завтра: 🌧️ +3°…+6°");
     expect(reply.text).toContain("Дані MET Norway на 19:19 за місцевим часом");
   });
 

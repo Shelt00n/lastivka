@@ -91,31 +91,31 @@ export interface Weather {
 /** WMO weather interpretation codes → emoji + Ukrainian description. */
 export function describeWeatherCode(code: number): [string, string] {
   if (code === 0) return ["☀️", "ясно"];
-  if (code <= 2) return ["🌤", "мінлива хмарність"];
+  if (code <= 2) return ["🌤️", "мінлива хмарність"];
   if (code === 3) return ["☁️", "хмарно"];
-  if (code === 45 || code === 48) return ["🌫", "туман"];
-  if (code >= 51 && code <= 57) return ["🌦", "мряка"];
-  if (code >= 61 && code <= 67) return ["🌧", "дощ"];
-  if (code >= 71 && code <= 77) return ["🌨", "сніг"];
-  if (code >= 80 && code <= 82) return ["🌧", "злива"];
-  if (code === 85 || code === 86) return ["🌨", "снігопад"];
-  if (code >= 95) return ["⛈", "гроза"];
-  return ["🌡", "—"];
+  if (code === 45 || code === 48) return ["🌫️", "туман"];
+  if (code >= 51 && code <= 57) return ["🌦️", "мряка"];
+  if (code >= 61 && code <= 67) return ["🌧️", "дощ"];
+  if (code >= 71 && code <= 77) return ["🌨️", "сніг"];
+  if (code >= 80 && code <= 82) return ["🌧️", "злива"];
+  if (code === 85 || code === 86) return ["🌨️", "снігопад"];
+  if (code >= 95) return ["⛈️", "гроза"];
+  return ["🌡️", "—"];
 }
 
 /** MET Norway symbol codes ("lightrainshowers_day") → emoji + Ukrainian description. */
 export function describeSymbol(symbol: string): [string, string] {
   const s = symbol.replace(/_(day|night|polartwilight)$/, "");
-  if (s.includes("thunder")) return ["⛈", "гроза"];
-  if (s.includes("sleet")) return ["🌨", "мокрий сніг"];
-  if (s.includes("snow")) return ["🌨", "сніг"];
-  if (s.includes("rainshowers")) return ["🌧", "злива"];
-  if (s.includes("rain")) return ["🌧", "дощ"];
-  if (s === "fog") return ["🌫", "туман"];
+  if (s.includes("thunder")) return ["⛈️", "гроза"];
+  if (s.includes("sleet")) return ["🌨️", "мокрий сніг"];
+  if (s.includes("snow")) return ["🌨️", "сніг"];
+  if (s.includes("rainshowers")) return ["🌧️", "злива"];
+  if (s.includes("rain")) return ["🌧️", "дощ"];
+  if (s === "fog") return ["🌫️", "туман"];
   if (s === "clearsky") return ["☀️", "ясно"];
-  if (s === "fair" || s === "partlycloudy") return ["🌤", "мінлива хмарність"];
+  if (s === "fair" || s === "partlycloudy") return ["🌤️", "мінлива хмарність"];
   if (s === "cloudy") return ["☁️", "хмарно"];
-  return ["🌡", "—"];
+  return ["🌡️", "—"];
 }
 
 /** Wind chill (Environment Canada) for cold, windy weather; null when it doesn't apply. */
@@ -250,7 +250,7 @@ export function cityCandidates(city: string): string[] {
 }
 
 export const weatherWelcome: BotReply = {
-  text: "Привіт! Я покажу погоду 🌤\nНапишіть назву міста — будь-якого у світі.",
+  text: "Привіт! Я покажу погоду 🌤️\nНапишіть назву міста — будь-якого у світі.",
   buttons: CITIES,
 };
 
