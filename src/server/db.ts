@@ -181,6 +181,18 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS messages_chat_time ON messages(chat_id, created_at, id);
 CREATE INDEX IF NOT EXISTS messages_pending ON messages(deliver_at) WHERE deliver_at IS NOT NULL;
 
+CREATE TABLE IF NOT EXISTS blocks (
+  blocker_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  blocked_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at       BIGINT NOT NULL,
+  PRIMARY KEY (blocker_id, blocked_id)
+);
+
+-- Migrations for databases created before these columns existed (idempotent).
+-- cleared_at: "delete chat for me" hides everything up to this moment; hidden: chat removed from my list.
+ALTER TABLE chat_members ADD COLUMN IF NOT EXISTS cleared_at BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE chat_members ADD COLUMN IF NOT EXISTS hidden SMALLINT NOT NULL DEFAULT 0;
+
 CREATE TABLE IF NOT EXISTS reactions (
   message_id       INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
   user_id          INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -190,4 +202,4 @@ CREATE TABLE IF NOT EXISTS reactions (
 );
 `;
 
-export const TABLES = ["reactions", "messages", "chat_members", "chats", "sessions", "users"];
+export const TABLES = ["blocks", "reactions", "messages", "chat_members", "chats", "sessions", "users"];

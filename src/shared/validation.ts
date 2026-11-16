@@ -88,3 +88,5 @@ export const deleteAccountSchema = z.object({ password: z.string().min(1, "Вк�
 export function firstIssue(error: z.ZodError): string {
   return error.issues[0]?.message ?? "Некоректні дані";
 }
+
+export const deleteChatSchema = z.object({ forEveryone: z.boolean().default(false) }).strict();

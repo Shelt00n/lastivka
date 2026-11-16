@@ -1,10 +1,11 @@
 import { useDeferredValue, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, BellOff, Moon, Pin, PinOff, Search, SquarePen } from "lucide-react";
+import { Bell, BellOff, LogOut, Moon, Pin, PinOff, Search, SquarePen, Trash2 } from "lucide-react";
 import type { ChatSummary, Me } from "../../shared/types";
 import { ChatRow } from "../components/ChatRow";
 import { NewChatSheet } from "../components/NewChatSheet";
+import { DeleteChatSheet } from "../components/DeleteChatSheet";
 import { Sheet, SheetAction } from "../components/Sheet";
 import { TabBar } from "../components/TabBar";
 import { Avatar } from "../components/Avatar";
@@ -70,6 +71,7 @@ export function ChatsPage({ me }: { me: Me }) {
   const [query, setQuery] = useState("");
   const [folder, setFolder] = useState<Folder>(savedFolder);
   const [menuChat, setMenuChat] = useState<ChatSummary | null>(null);
+  const [deleting, setDeleting] = useState<ChatSummary | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const q = useDeferredValue(query.trim().toLowerCase());
@@ -202,6 +204,8 @@ export function ChatsPage({ me }: { me: Me }) {
 
       <NewChatSheet open={composeOpen} onClose={() => setComposeOpen(false)} />
 
+      <DeleteChatSheet chat={deleting} isDemo={me.isDemo} onClose={() => setDeleting(null)} />
+
       <Sheet open={!!menuChat} onClose={() => setMenuChat(null)} label="Дії з чатом">
         {menuChat && (
           <>
@@ -226,6 +230,16 @@ export function ChatsPage({ me }: { me: Me }) {
                 }}
               >
                 {menuChat.muted ? "Увімкнути сповіщення" : "Вимкнути сповіщення"}
+              </SheetAction>
+              <SheetAction
+                danger
+                icon={menuChat.type === "group" ? <LogOut size={20} /> : <Trash2 size={20} />}
+                onClick={() => {
+                  setDeleting(menuChat);
+                  setMenuChat(null);
+                }}
+              >
+                {menuChat.type === "group" ? "Покинути групу" : menuChat.isSaved ? "Очистити" : "Видалити чат"}
               </SheetAction>
             </div>
             <button type="button" className="sheet-cancel" onClick={() => setMenuChat(null)}>

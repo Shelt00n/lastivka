@@ -13,6 +13,7 @@ import {
   createGroupSchema,
   createPrivateSchema,
   deleteAccountSchema,
+  deleteChatSchema,
   editMessageSchema,
   firstIssue,
   loginSchema,
@@ -23,8 +24,9 @@ import {
   updateMeSchema,
 } from "../shared/validation";
 import * as auth from "./services/auth";
-import { contactIds, getUser, searchUsers, toMe, toPublicUser, type UserRow } from "./services/users";
-import { createGroup, getChat, listChats, openPrivateChat, updateChatSettings } from "./services/chats";
+import { contactIds, getUser, publicUsersFor, searchUsers, toMe, type UserRow } from "./services/users";
+import { createGroup, deleteChat, getChat, listChats, openPrivateChat, updateChatSettings } from "./services/chats";
+import { blockUser, unblockUser } from "./services/blocks";
 import * as messages from "./services/messages";
 import { MAX_STREAMS_PER_USER } from "./services/hub";
 import { onboardUser } from "./seed";
@@ -294,7 +296,17 @@ export function createApp(ctx: AppContext, opts: AppOptions) {
   authed.get("/users/:id", async (c) => {
     const user = await getUser(ctx, idParam(c));
     if (!user) throw notFound("Користувача не знайдено");
-    return c.json(toPublicUser(ctx, user));
+    return c.json((await publicUsersFor(ctx, c.get("user").id, [user]))[0]);
+  });
+
+  authed.post("/users/:id/block", async (c) => {
+    await blockUser(ctx, c.get("user").id, idParam(c));
+    return c.body(null, 204);
+  });
+
+  authed.delete("/users/:id/block", async (c) => {
+    await unblockUser(ctx, c.get("user").id, idParam(c));
+    return c.body(null, 204);
   });
 
   authed.get("/chats", async (c) => c.json(await listChats(ctx, c.get("user").id)));
@@ -318,6 +330,13 @@ export function createApp(ctx: AppContext, opts: AppOptions) {
     const patch = await body(c, chatSettingsSchema);
     await updateChatSettings(ctx, c.get("user").id, idParam(c), patch);
     return c.json(await getChat(ctx, idParam(c), c.get("user").id));
+  });
+
+  authed.delete("/chats/:id", async (c) => {
+    // Body is optional: no body = delete for me.
+    const raw = (c.req.header("content-type") ?? "").startsWith("application/json") ? await body(c, deleteChatSchema) : null;
+    await deleteChat(ctx, c.get("user"), idParam(c), raw?.forEveryone ?? false);
+    return c.body(null, 204);
   });
 
   authed.get("/chats/:id/messages", async (c) =>

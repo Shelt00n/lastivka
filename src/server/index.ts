@@ -10,6 +10,7 @@ import { Hub } from "./services/hub";
 import { contactIds, touchLastSeen } from "./services/users";
 import { deliverDue } from "./services/messages";
 import { purgeExpiredSessions } from "./services/auth";
+import { blockedBy } from "./services/blocks";
 import { seedDemo } from "./seed";
 import type { AppContext } from "./context";
 
@@ -37,7 +38,10 @@ const ctx: AppContext = {
     // Presence: first tab opened → online; last tab closed → "last seen".
     void (async () => {
       await touchLastSeen(ctx, userId);
-      ctx.hub.publish(await contactIds(ctx, userId), { type: "presence", userId, online, lastSeenAt: ctx.now() });
+      // People this user blocked don't get to see them come online.
+      const hidden = await blockedBy(ctx, userId);
+      const audience = (await contactIds(ctx, userId)).filter((id) => !hidden.has(id));
+      ctx.hub.publish(audience, { type: "presence", userId, online, lastSeenAt: ctx.now() });
     })().catch((err) => console.error("[presence]", err));
   }),
 };

@@ -1,6 +1,7 @@
 import type { AppContext } from "../context";
 import type { Me, UserPublic } from "../../shared/types";
 import { quietEndsAt, type QuietSettings } from "../../shared/quietHours";
+import { relationsFor } from "./blocks";
 
 export interface UserRow {
   id: number;
@@ -30,7 +31,11 @@ export function quietOf(u: UserRow): QuietSettings {
 }
 
 /** What other people may see about a user. Never includes password hash or session data. */
-export function toPublicUser(ctx: AppContext, u: UserRow): UserPublic {
+export function toPublicUser(
+  ctx: AppContext,
+  u: UserRow,
+  rel: { blockedByMe?: boolean; blockedMe?: boolean } = {},
+): UserPublic {
   const showTime = !!u.show_local_time;
   const q = quietOf(u);
   let quiet: UserPublic["quiet"] = null;
@@ -51,11 +56,23 @@ export function toPublicUser(ctx: AppContext, u: UserRow): UserPublic {
     bio: u.bio,
     avatarHue: u.avatar_hue,
     isBot: !!u.is_bot,
-    online: !!u.is_bot || ctx.hub.isOnline(u.id),
-    lastSeenAt: u.is_bot ? null : u.last_seen_at,
+    // Someone who blocked me shows as "last seen a long time ago", like in Telegram.
+    online: !!u.is_bot || (!rel.blockedMe && ctx.hub.isOnline(u.id)),
+    lastSeenAt: u.is_bot || rel.blockedMe ? null : u.last_seen_at,
     timeZone: showTime && !u.is_bot ? u.time_zone : null,
     quiet,
+    blockedByMe: !!rel.blockedByMe,
   };
+}
+
+/** Public profiles as seen by a particular viewer (block relations applied). */
+export async function publicUsersFor(ctx: AppContext, viewerId: number, rows: UserRow[]): Promise<UserPublic[]> {
+  const { iBlocked, blockedMe } = await relationsFor(
+    ctx,
+    viewerId,
+    rows.map((u) => u.id),
+  );
+  return rows.map((u) => toPublicUser(ctx, u, { blockedByMe: iBlocked.has(u.id), blockedMe: blockedMe.has(u.id) }));
 }
 
 export async function toMe(ctx: AppContext, u: UserRow): Promise<Me> {
@@ -123,7 +140,7 @@ export async function searchUsers(ctx: AppContext, meId: number, q: string): Pro
       query,
     );
   }
-  return rows.map((u) => toPublicUser(ctx, u));
+  return publicUsersFor(ctx, meId, rows);
 }
 
 export async function touchLastSeen(ctx: AppContext, userId: number) {

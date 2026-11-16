@@ -68,11 +68,14 @@ export const api = {
   deleteAccount: (password: string) => request<void>("DELETE", "/me", { password }),
 
   searchUsers: (q: string) => request<UserPublic[]>("GET", `/users/search?q=${encodeURIComponent(q)}`),
+  blockUser: (id: number) => request<void>("POST", `/users/${id}/block`),
+  unblockUser: (id: number) => request<void>("DELETE", `/users/${id}/block`),
 
   chats: () => request<ChatSummary[]>("GET", "/chats"),
   chat: (id: number) => request<ChatDetail>("GET", `/chats/${id}`),
   openPrivate: (userId: number) => request<ChatDetail>("POST", "/chats/private", { userId }),
   createGroup: (title: string, memberIds: number[]) => request<ChatDetail>("POST", "/chats/group", { title, memberIds }),
+  deleteChat: (id: number, forEveryone: boolean) => request<void>("DELETE", `/chats/${id}`, { forEveryone }),
   updateChat: (id: number, patch: { pinned?: boolean; muted?: boolean }) =>
     request<ChatDetail>("PATCH", `/chats/${id}`, patch),
 

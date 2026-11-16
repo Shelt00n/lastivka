@@ -40,6 +40,8 @@ export interface UserPublic {
   timeZone: string | null;
   /** Quiet-hours status relevant for a sender (null for bots / disabled). */
   quiet: PeerQuietStatus | null;
+  /** I blocked this person (never tells whether they blocked me). */
+  blockedByMe: boolean;
 }
 
 export interface PeerQuietStatus {
@@ -95,6 +97,8 @@ export interface ChatSummary {
 
 export interface ChatDetail extends ChatSummary {
   members: UserPublic[];
+  /** Group owner can delete the group for everyone. */
+  isOwner: boolean;
 }
 
 export interface MessagesPage {
@@ -117,6 +121,7 @@ export type ServerEvent =
   | { type: "message.deleted"; chatId: number; messageId: number }
   | { type: "chat.read"; chatId: number; userId: number; readAt: number }
   | { type: "chat.new"; chatId: number }
+  | { type: "chat.deleted"; chatId: number }
   | { type: "typing"; chatId: number; userId: number; name: string }
   | { type: "presence"; userId: number; online: boolean; lastSeenAt: number | null }
   | { type: "me.updated" };

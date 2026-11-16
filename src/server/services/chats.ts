@@ -1,6 +1,6 @@
 import { HttpError, notFound, withDb, type AppContext } from "../context";
 import type { ChatDetail, ChatSummary } from "../../shared/types";
-import { getUser, toPublicUser, type UserRow } from "./users";
+import { getUser, publicUsersFor, type UserRow } from "./users";
 import { lastVisibleMessage } from "./messages";
 import { hueFor } from "../security";
 
@@ -12,12 +12,16 @@ export interface ChatRow {
   avatar_hue: number;
   created_by: number | null;
   created_at: number;
+  /** My membership: everything up to this moment was deleted "for me". */
+  my_cleared_at?: number;
 }
 
 interface MemberRow extends ChatRow {
   last_read_at: number;
   pinned: number;
   muted: number;
+  hidden: number;
+  role: string;
 }
 
 export const SAVED_TITLE = "Збережене";
@@ -28,7 +32,8 @@ export const SAVED_TITLE = "Збережене";
  */
 export async function requireMember(ctx: AppContext, chatId: number, userId: number): Promise<ChatRow> {
   const chat = await ctx.db.one<ChatRow>(
-    `SELECT c.* FROM chats c JOIN chat_members cm ON cm.chat_id = c.id AND cm.user_id = ? WHERE c.id = ?`,
+    `SELECT c.*, cm.cleared_at AS my_cleared_at
+       FROM chats c JOIN chat_members cm ON cm.chat_id = c.id AND cm.user_id = ? WHERE c.id = ?`,
     userId,
     chatId,
   );
@@ -57,7 +62,7 @@ const privateKey = (a: number, b: number) => `${Math.min(a, b)}:${Math.max(a, b)
 async function summarize(ctx: AppContext, chat: MemberRow, meId: number): Promise<ChatSummary> {
   const isSaved = chat.private_key === privateKey(meId, meId);
   const peerRow = chat.type === "private" ? await privatePeer(ctx, chat.id, meId) : undefined;
-  const peer = peerRow ? toPublicUser(ctx, peerRow) : null;
+  const peer = peerRow ? ((await publicUsersFor(ctx, meId, [peerRow]))[0] ?? null) : null;
 
   const [unread, others, lastMessage] = await Promise.all([
     ctx.db.one<{ n: number }>(
@@ -95,13 +100,15 @@ async function summarize(ctx: AppContext, chat: MemberRow, meId: number): Promis
 
 export async function listChats(ctx: AppContext, meId: number): Promise<ChatSummary[]> {
   const rows = await ctx.db.all<MemberRow>(
-    `SELECT c.*, cm.last_read_at, cm.pinned, cm.muted
+    `SELECT c.*, cm.last_read_at, cm.pinned, cm.muted, cm.hidden, cm.role
        FROM chats c JOIN chat_members cm ON cm.chat_id = c.id AND cm.user_id = ?`,
     meId,
   );
   const items = await Promise.all(rows.map(async (row) => ({ row, chat: await summarize(ctx, row, meId) })));
   return (
     items
+      // A chat I deleted "for me" comes back only with a new message.
+      .filter(({ row, chat }) => !row.hidden || chat.lastMessage)
       // A private chat someone opened with me but never wrote in stays hidden for me.
       .filter(({ row, chat }) => chat.lastMessage || chat.isSaved || chat.type === "group" || row.created_by === meId)
       .map(({ row, chat }) => ({ chat, activity: chat.lastMessage?.createdAt ?? row.created_at }))
@@ -116,7 +123,7 @@ export async function listChats(ctx: AppContext, meId: number): Promise<ChatSumm
 export async function getChat(ctx: AppContext, chatId: number, meId: number): Promise<ChatDetail> {
   await requireMember(ctx, chatId, meId);
   const row = (await ctx.db.one<MemberRow>(
-    `SELECT c.*, cm.last_read_at, cm.pinned, cm.muted
+    `SELECT c.*, cm.last_read_at, cm.pinned, cm.muted, cm.hidden, cm.role
        FROM chats c JOIN chat_members cm ON cm.chat_id = c.id AND cm.user_id = ? WHERE c.id = ?`,
     meId,
     chatId,
@@ -126,7 +133,11 @@ export async function getChat(ctx: AppContext, chatId: number, meId: number): Pr
       WHERE cm.chat_id = ? ORDER BY cm.role = 'owner' DESC, lower(u.display_name)`,
     chatId,
   );
-  return { ...(await summarize(ctx, row, meId)), members: members.map((u) => toPublicUser(ctx, u)) };
+  return {
+    ...(await summarize(ctx, row, meId)),
+    members: await publicUsersFor(ctx, meId, members),
+    isOwner: row.type === "group" && row.role === "owner",
+  };
 }
 
 export async function openPrivateChat(ctx: AppContext, meId: number, otherId: number): Promise<number> {
@@ -134,7 +145,11 @@ export async function openPrivateChat(ctx: AppContext, meId: number, otherId: nu
   if (!other) throw notFound("Користувача не знайдено");
   const key = privateKey(meId, otherId);
   const existing = await ctx.db.one<{ id: number }>("SELECT id FROM chats WHERE private_key = ?", key);
-  if (existing) return existing.id;
+  if (existing) {
+    // Opening a chat I deleted "for me" brings it back (with the old history still cleared).
+    await ctx.db.run("UPDATE chat_members SET hidden = 0 WHERE chat_id = ? AND user_id = ?", existing.id, meId);
+    return existing.id;
+  }
 
   const now = ctx.now();
   return ctx.db.tx(async (db) => {
@@ -196,4 +211,84 @@ export async function updateChatSettings(
   if (patch.muted !== undefined) {
     await ctx.db.run("UPDATE chat_members SET muted = ? WHERE chat_id = ? AND user_id = ?", +patch.muted, chatId, meId);
   }
+}
+
+/**
+ * Delete a chat, Telegram-style.
+ *  - private chat, for me: history up to now disappears for me, the chat leaves my list; the other side keeps it;
+ *  - private chat, for everyone: the chat and all its messages are removed for both;
+ *  - Saved Messages: all notes are deleted;
+ *  - group: leave it; the owner may delete it for everyone.
+ */
+export async function deleteChat(
+  ctx: AppContext,
+  me: { id: number; is_demo: number },
+  chatId: number,
+  forEveryone: boolean,
+) {
+  const chat = await requireMember(ctx, chatId, me.id);
+  const members = await memberIds(ctx, chatId);
+  const now = ctx.now();
+  // Shared demo accounts must not destroy the seeded conversations for other reviewers.
+  if (forEveryone && me.is_demo) {
+    throw new HttpError(403, "У спільному демо-акаунті можна видаляти чати лише для себе");
+  }
+
+  if (chat.type === "group") {
+    if (forEveryone) {
+      const mine = await ctx.db.one<{ role: string }>(
+        "SELECT role FROM chat_members WHERE chat_id = ? AND user_id = ?",
+        chatId,
+        me.id,
+      );
+      if (mine?.role !== "owner") throw new HttpError(403, "Видалити групу для всіх може лише її власник");
+      await ctx.db.run("DELETE FROM chats WHERE id = ?", chatId);
+      ctx.hub.publish(members, { type: "chat.deleted", chatId });
+      return;
+    }
+    await ctx.db.tx(async (db) => {
+      await db.run("DELETE FROM chat_members WHERE chat_id = ? AND user_id = ?", chatId, me.id);
+      const left = await db.one<{ n: number }>("SELECT COUNT(*) AS n FROM chat_members WHERE chat_id = ?", chatId);
+      if (!left?.n) {
+        await db.run("DELETE FROM chats WHERE id = ?", chatId);
+        return;
+      }
+      // The group never stays without an owner: the longest-standing member takes over.
+      await db.run(
+        `UPDATE chat_members SET role = 'owner'
+          WHERE chat_id = ? AND user_id = (SELECT user_id FROM chat_members WHERE chat_id = ? ORDER BY joined_at, user_id LIMIT 1)
+            AND NOT EXISTS (SELECT 1 FROM chat_members WHERE chat_id = ? AND role = 'owner')`,
+        chatId,
+        chatId,
+        chatId,
+      );
+    });
+    ctx.hub.publish([me.id], { type: "chat.deleted", chatId });
+    ctx.hub.publish(
+      members.filter((id) => id !== me.id),
+      { type: "chat.new", chatId },
+    );
+    return;
+  }
+
+  const isSaved = chat.private_key === privateKey(me.id, me.id);
+  if (isSaved) {
+    await ctx.db.run("DELETE FROM messages WHERE chat_id = ?", chatId);
+    ctx.hub.publish([me.id], { type: "chat.deleted", chatId });
+    return;
+  }
+  if (forEveryone) {
+    await ctx.db.run("DELETE FROM chats WHERE id = ?", chatId);
+    ctx.hub.publish(members, { type: "chat.deleted", chatId });
+    return;
+  }
+  await ctx.db.run(
+    `UPDATE chat_members SET cleared_at = ?, hidden = 1, pinned = 0, last_read_at = GREATEST(last_read_at, ?)
+      WHERE chat_id = ? AND user_id = ?`,
+    now,
+    now,
+    chatId,
+    me.id,
+  );
+  ctx.hub.publish([me.id], { type: "chat.deleted", chatId });
 }

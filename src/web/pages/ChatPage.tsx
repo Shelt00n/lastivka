@@ -11,7 +11,7 @@ import { toast } from "../components/Toast";
 import { ConnectionTitle } from "./ChatsPage";
 import { api, ApiError } from "../lib/api";
 import { buildRows, sortMessages, type ClientMessage } from "../lib/messages";
-import { patchChat, refreshChatsSoon, removeMessage, upsertMessage, useChat, useChats, useMessages } from "../lib/queries";
+import { patchChat, qk, refreshChatsSoon, removeMessage, upsertMessage, useChat, useChats, useMessages } from "../lib/queries";
 import { usePresence, useTyping } from "../lib/store";
 import { formatLastSeen, formatMembers } from "../lib/format";
 
@@ -342,7 +342,28 @@ export function ChatPage({ me }: { me: Me }) {
         )}
       </div>
 
-      {chat && (
+      {chat?.peer?.blockedByMe && !chat.isSaved && (
+        <div className="blocked-bar">
+          <span>Ви заблокували цього користувача</span>
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                await api.unblockUser(chat.peer!.id);
+                toast("Користувача розблоковано");
+                await qc.invalidateQueries({ queryKey: qk.chat(chatId) });
+                void qc.invalidateQueries({ queryKey: qk.chats });
+              } catch (e) {
+                toast(errorText(e, "Не вдалося розблокувати"));
+              }
+            }}
+          >
+            Розблокувати
+          </button>
+        </div>
+      )}
+
+      {chat && !(chat.peer?.blockedByMe && !chat.isSaved) && (
         <Composer
           chat={chat}
           replyTo={replyTo}

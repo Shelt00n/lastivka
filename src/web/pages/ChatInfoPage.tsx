@@ -1,10 +1,12 @@
 import { Link, useNavigate, useParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { Bell, ChevronLeft, MessageCircle, Moon, Pin } from "lucide-react";
+import { Ban, Bell, ChevronLeft, LogOut, MessageCircle, Moon, Pin, Trash2, UserCheck } from "lucide-react";
+import { useState } from "react";
 import type { ChatDetail, Me, UserPublic } from "../../shared/types";
 import { formatClock, minutesToHHMM } from "../../shared/quietHours";
 import { Avatar } from "../components/Avatar";
 import { Toggle } from "../components/Toggle";
+import { DeleteChatSheet } from "../components/DeleteChatSheet";
 import { toast } from "../components/Toast";
 import { api, ApiError } from "../lib/api";
 import { patchChat, qk, useChat } from "../lib/queries";
@@ -67,6 +69,20 @@ export function ChatInfoPage({ me }: { me: Me }) {
   const navigate = useNavigate();
   const peer = chat?.peer;
   const presence = usePresence(peer?.id, { online: peer?.online ?? false, lastSeenAt: peer?.lastSeenAt ?? null });
+  const [deleting, setDeleting] = useState(false);
+
+  const toggleBlock = async () => {
+    if (!peer) return;
+    try {
+      if (peer.blockedByMe) await api.unblockUser(peer.id);
+      else await api.blockUser(peer.id);
+      toast(peer.blockedByMe ? "Користувача розблоковано" : "Користувача заблоковано");
+      await qc.invalidateQueries({ queryKey: qk.chat(chatId) });
+      void qc.invalidateQueries({ queryKey: qk.chats });
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Не вдалося змінити блокування");
+    }
+  };
 
   const update = async (patch: { pinned?: boolean; muted?: boolean }) => {
     patchChat(qc, chatId, () => patch);
@@ -192,6 +208,32 @@ export function ChatInfoPage({ me }: { me: Me }) {
                 </div>
               </div>
             )}
+
+            <div className="card">
+              {chat.type === "private" && peer && !chat.isSaved && !peer.isBot && (
+                <button type="button" className={`cell cell--button${peer.blockedByMe ? "" : " cell--danger"}`} onClick={toggleBlock}>
+                  {peer.blockedByMe ? <UserCheck size={18} /> : <Ban size={18} />}
+                  {peer.blockedByMe ? "Розблокувати" : "Заблокувати"}
+                </button>
+              )}
+              <button type="button" className="cell cell--button cell--danger" onClick={() => setDeleting(true)}>
+                {chat.type === "group" ? <LogOut size={18} /> : <Trash2 size={18} />}
+                {chat.type === "group" ? "Покинути групу" : chat.isSaved ? "Очистити «Збережене»" : "Видалити чат"}
+              </button>
+            </div>
+            {chat.type === "private" && peer && !chat.isSaved && !peer.isBot && (
+              <p className="section-footer">
+                Заблокований користувач не зможе вам писати й не бачитиме, коли ви в мережі. Він не отримає про це сповіщення.
+              </p>
+            )}
+
+            <DeleteChatSheet
+              chat={deleting ? chat : null}
+              isOwner={chat.isOwner}
+              isDemo={me.isDemo}
+              onClose={() => setDeleting(false)}
+              onDeleted={() => navigate("/", { replace: true })}
+            />
           </>
         )}
       </div>

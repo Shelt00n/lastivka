@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { ServerEvent } from "../../shared/types";
 import { api, ApiError } from "./api";
-import { patchChat, qk, refreshChatsSoon, removeMessage, upsertMessage } from "./queries";
+import { forgetChat, patchChat, qk, refreshChatsSoon, removeMessage, upsertMessage } from "./queries";
 import { clearTyping, connectionStore, presenceStore, setTyping } from "./store";
 
 function handle(qc: QueryClient, meId: number, event: ServerEvent) {
@@ -27,6 +27,9 @@ function handle(qc: QueryClient, meId: number, event: ServerEvent) {
       break;
     case "chat.new":
       refreshChatsSoon(qc);
+      break;
+    case "chat.deleted":
+      forgetChat(qc, event.chatId);
       break;
     case "typing":
       if (event.userId !== meId) setTyping(event.chatId, event.userId, event.name);

@@ -4,6 +4,7 @@ import type { DeliveryMode, MessageDto, MessagesPage, Reaction } from "../../sha
 import { quietEndsAt } from "../../shared/quietHours";
 import { getUser, quietOf, type UserRow } from "./users";
 import { memberIds, privatePeer, requireMember, type ChatRow } from "./chats";
+import { blockBetween } from "./blocks";
 
 interface MessageRow {
   id: number;
@@ -95,8 +96,10 @@ export async function serializeMessage(ctx: AppContext, id: number, viewerId: nu
 export async function lastVisibleMessage(ctx: AppContext, chatId: number, viewerId: number): Promise<MessageDto | null> {
   const row = await ctx.db.one<MessageRow>(
     `${SELECT_MESSAGE} WHERE m.chat_id = ? AND (m.deliver_at IS NULL OR m.sender_id = ?)
+        AND m.created_at > COALESCE((SELECT cleared_at FROM chat_members WHERE chat_id = m.chat_id AND user_id = ?), 0)
       ORDER BY m.created_at DESC, m.id DESC LIMIT 1`,
     chatId,
+    viewerId,
     viewerId,
   );
   return row ? ((await serializeMany(ctx, [row], viewerId))[0] ?? null) : null;
@@ -122,10 +125,11 @@ export async function listMessages(
   cursorRaw: string | null,
   limit = PAGE_SIZE,
 ): Promise<MessagesPage> {
-  await requireMember(ctx, chatId, meId);
+  const chat = await requireMember(ctx, chatId, meId);
+  const clearedAt = chat.my_cleared_at ?? 0;
   const cursor = decodeCursor(cursorRaw);
-  const params: SqlParam[] = [chatId];
-  let where = "m.chat_id = ? AND m.deliver_at IS NULL";
+  const params: SqlParam[] = [chatId, clearedAt];
+  let where = "m.chat_id = ? AND m.created_at > ? AND m.deliver_at IS NULL";
   if (cursor) {
     where += " AND (m.created_at < ? OR (m.created_at = ? AND m.id < ?))";
     params.push(cursor.createdAt, cursor.createdAt, cursor.id);
@@ -143,10 +147,11 @@ export async function listMessages(
   const held = cursor
     ? []
     : await ctx.db.all<MessageRow>(
-        `${SELECT_MESSAGE} WHERE m.chat_id = ? AND m.deliver_at IS NOT NULL AND m.sender_id = ?
+        `${SELECT_MESSAGE} WHERE m.chat_id = ? AND m.deliver_at IS NOT NULL AND m.sender_id = ? AND m.created_at > ?
           ORDER BY m.deliver_at, m.id`,
         chatId,
         meId,
+        clearedAt,
       );
 
   return {
@@ -194,6 +199,7 @@ export async function computeDeliverAt(ctx: AppContext, chat: ChatRow, senderId:
 export async function sendMessage(ctx: AppContext, senderId: number, chatId: number, input: SendInput): Promise<MessageDto> {
   const chat = await requireMember(ctx, chatId, senderId);
   const now = ctx.now();
+  await assertNotBlocked(ctx, chat, senderId);
 
   if (input.replyToId) {
     const target = await ctx.db.one<{ chat_id: number; deliver_at: number | null }>(
@@ -236,6 +242,16 @@ export async function sendMessage(ctx: AppContext, senderId: number, chatId: num
   return (await serializeMessage(ctx, id, senderId))!;
 }
 
+/** In a private chat, a block in either direction stops new messages. */
+async function assertNotBlocked(ctx: AppContext, chat: ChatRow, senderId: number) {
+  if (chat.type !== "private") return;
+  const peer = await privatePeer(ctx, chat.id, senderId);
+  if (!peer || peer.id === senderId || peer.is_bot) return;
+  const { aBlockedB, bBlockedA } = await blockBetween(ctx, senderId, peer.id);
+  if (aBlockedB) throw new HttpError(403, "Ви заблокували цього користувача. Розблокуйте, щоб написати");
+  if (bBlockedA) throw new HttpError(403, "Користувач обмежив отримання повідомлень від вас");
+}
+
 async function maybeRunBot(ctx: AppContext, chat: ChatRow, senderId: number, text: string) {
   const bot = await privatePeer(ctx, chat.id, senderId);
   if (!bot || !bot.is_bot || !bot.bot_kind) return;
@@ -254,14 +270,16 @@ async function maybeRunBot(ctx: AppContext, chat: ChatRow, senderId: number, tex
 
 /** Load a message the user is allowed to act on, or 404 (never reveal other chats' messages). */
 async function requireVisible(ctx: AppContext, messageId: number, userId: number) {
-  const row = await ctx.db.one<MessageRow & { member: number | null }>(
-    `SELECT m.*, cm.user_id AS member FROM messages m
+  const row = await ctx.db.one<MessageRow & { member: number | null; cleared_at: number | null }>(
+    `SELECT m.*, cm.user_id AS member, cm.cleared_at FROM messages m
        LEFT JOIN chat_members cm ON cm.chat_id = m.chat_id AND cm.user_id = ?
       WHERE m.id = ?`,
     userId,
     messageId,
   );
-  if (!row || !row.member || !canSee(row, userId)) throw notFound("Повідомлення не знайдено");
+  if (!row || !row.member || !canSee(row, userId) || row.created_at <= (row.cleared_at ?? 0)) {
+    throw notFound("Повідомлення не знайдено");
+  }
   return row;
 }
 
@@ -317,7 +335,14 @@ export async function markRead(ctx: AppContext, userId: number, chatId: number, 
 }
 
 export async function sendTyping(ctx: AppContext, user: UserRow, chatId: number) {
-  await requireMember(ctx, chatId, user.id);
+  const chat = await requireMember(ctx, chatId, user.id);
+  if (chat.type === "private") {
+    const peer = await privatePeer(ctx, chatId, user.id);
+    if (peer && peer.id !== user.id) {
+      const b = await blockBetween(ctx, user.id, peer.id);
+      if (b.aBlockedB || b.bBlockedA) return;
+    }
+  }
   const others = (await memberIds(ctx, chatId)).filter((id) => id !== user.id);
   ctx.hub.publish(others, { type: "typing", chatId, userId: user.id, name: user.display_name });
 }

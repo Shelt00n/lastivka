@@ -74,3 +74,11 @@ export function refreshChatsSoon(qc: QueryClient) {
     void qc.invalidateQueries({ queryKey: qk.chats });
   }, 150);
 }
+
+/** A chat was deleted (by me, or for everyone by the other side): drop it from every cache. */
+export function forgetChat(qc: QueryClient, chatId: number) {
+  qc.setQueryData<ChatSummary[]>(qk.chats, (list) => list?.filter((c) => c.id !== chatId));
+  void qc.resetQueries({ queryKey: qk.messages(chatId) });
+  void qc.invalidateQueries({ queryKey: qk.chat(chatId) });
+  refreshChatsSoon(qc);
+}
